@@ -22,11 +22,12 @@ Few-shot learning (FSL) as a data-scarce method, aims to recognize instances of 
 * [glove word embedding](https://nlp.stanford.edu/projects/glove/)
 
 ## Pre-trained Backbones
+The pre-trained backbones can be downloaded from the following links:
 * [WRN-28-10](https://drive.google.com/drive/folders/1KfPzwMvVzybvp13IQW5ipHvSxBncTA-C)   
 * [ResNet12](https://drive.google.com/file/d/1Prn7_41NVrZbnePAlSiKjD21Jlz0LKJM/view)
 
 ## Evaluate SIFT method
-To evaluate our SIFT method, run:
+To evaluate SIFT, run:
 ```eval
 python3 run_st.py
 ```

@@ -37,5 +37,6 @@ python3 run_st.py
 * The license gives permission for academic use only.
 
 ## Acknowlegements
+Our project references the codes in the following repos.
 * [S2M2_fewshot](https://github.com/nupurkmr9/S2M2_fewshot)
 * [DC](https://github.com/ShuoYang-1998/Few_Shot_Distribution_Calibration)

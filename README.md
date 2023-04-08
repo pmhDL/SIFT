@@ -22,8 +22,8 @@ Few-shot learning (FSL) as a data-scarce method, aims to recognize instances of 
 * [glove word embedding](https://nlp.stanford.edu/projects/glove/)
 
 ## Pre-trained Backbones
-**WRN-28-10:** download the pretrained backbones from here: [checkpoints](https://drive.google.com/drive/folders/1KfPzwMvVzybvp13IQW5ipHvSxBncTA-C)   
-**ResNet12:** download the pretrained backbones from here: [checkpoints](https://drive.google.com/file/d/1Prn7_41NVrZbnePAlSiKjD21Jlz0LKJM/view)
+* [WRN-28-10](https://drive.google.com/drive/folders/1KfPzwMvVzybvp13IQW5ipHvSxBncTA-C)   
+* [ResNet12](https://drive.google.com/file/d/1Prn7_41NVrZbnePAlSiKjD21Jlz0LKJM/view)
 
 ## Evaluate SIFT method
 To evaluate our SIFT method, run:
@@ -36,5 +36,5 @@ python3 run_st.py
 * The license gives permission for academic use only.
 
 ## Acknowlegements
-[S2M2_fewshot](https://github.com/nupurkmr9/S2M2_fewshot)
-[DC](https://github.com/ShuoYang-1998/Few_Shot_Distribution_Calibration)
+* [S2M2_fewshot](https://github.com/nupurkmr9/S2M2_fewshot)
+* [DC](https://github.com/ShuoYang-1998/Few_Shot_Distribution_Calibration)

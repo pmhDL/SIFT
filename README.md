@@ -15,6 +15,7 @@ Few-shot learning (FSL) as a data-scarce method, aims to recognize instances of 
 ![Image text](https://github.com/pmhDL/SIFT/blob/main/Images/framework.png)
 
 ## Datasets
+The dataset can be downloaded from the following links:
 * [miniImageNet](https://drive.google.com/file/d/1fJAK5WZTjerW7EWHHQAR9pRJVNg1T1Y7/view?usp=sharing) 
 * [tieredImageNet](https://drive.google.com/file/d/1Letu5U_kAjQfqJjNPWS_rdjJ7Fd46LbX/view?usp=sharing)
 * [CIFAR-FS](https://drive.google.com/file/d/1GjGMI0q3bgcpcB_CjI40fX54WgLPuTpS/view?usp=sharing)

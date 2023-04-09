@@ -13,7 +13,7 @@ PyTorch implementation of Semantic-based Implicit Feature Transform for Few-Shot
 ## Overview
 Few-shot learning (FSL) as a data-scarce method, aims to recognize instances of unseen classes solely based on very few examples. However, the model can easily become overfitted due to the biased distribution formed with extremely limited training data. This paper presents a task specific data augmentation approach based on semantic transformation by implicitly transferring samples from base dataset to the novel tasks, which guarantees generating semantically meaningful features. Specifically, the feature transfer process is carried out in semantic space. We further impose a compactness constraint to the generated features with the prototypes working as the reference points, which ensures the generated features distribute around the class centers. Moreover, we incorporate the cluster centers of the query set with the prototypes of the support set to reduce the bias of the class centers. With the supervision of the compactness loss, the model is encouraged to generate discriminative features with high inter-class dispersion and intra-class compactness. Extensive experiments show that our method outperforms the state-of-the-arts on four benchmarks, namely MiniImageNet, TieredImageNet, CUB and CIFAR-FS. 
 
-![Image text](https://github.com/pmhDL/SIFT/blob/main/Images/framework.png)
+![Image text](https://github.com/pmhDL/SIFT/blob/main/Image/framework.png)
 
 ## Datasets
 The dataset can be downloaded from the following links:

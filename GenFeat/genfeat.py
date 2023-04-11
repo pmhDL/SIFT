@@ -32,7 +32,7 @@ datadir = './data/'+dataname
 checkpointpath = './checkpoints/'+dataname+'/'+modeltype+'.pth'
 savepath = './data/' + dataname + '/' + modeltype
 
-cuda_device = '1'
+cuda_device = '0'
 '''----------------------construct model---------------------'''
 if modeltype == 'res12':
     model = Res12()
@@ -52,10 +52,9 @@ model_dict = model.state_dict()
 checkpoint = torch.load(checkpointpath)
 state = checkpoint['params'] # params, state
 #print('state: ', state.keys())
-
-state = {k.replace('encoder.', ''): v for k, v in state.items()}
+#state = {k.replace('encoder.', ''): v for k, v in state.items()}
 state = {k: v for k, v in state.items() if k in model_dict}
-#print('state: ', state.keys())
+print('state: ', state.keys())
 
 model_dict.update(state)
 model.load_state_dict(model_dict)

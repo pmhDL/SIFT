@@ -241,7 +241,7 @@ class Learner(nn.Module):
             vars = nn.ParameterList()
             fc1_w = nn.Parameter(self.fc_de.fc1_w.transpose(1, 0))
             vars.append(fc1_w)
-            sem_ns_1 = self.fc_en(feat_ns_1, vars)
+            sem_ns_1 = self.fc_de(feat_ns_1, vars)
             loss6 = loss_fn(sem_ns, sem_ns_1)
 
             '''------------ compactness -----------'''

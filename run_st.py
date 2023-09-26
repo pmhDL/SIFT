@@ -1,4 +1,4 @@
-""" run SIFT method"""
+""" Our SIFT """
 import os
 
 def run_exp(shot=1, query=15, num_aug=100):
@@ -21,15 +21,15 @@ def run_exp(shot=1, query=15, num_aug=100):
                   + ' --classifiermethod=' + 'nonparam' \
                   + ' --cls=' + 'lr' \
                   + ' --selectm=' + 'randomselect' \
-                  + ' --setting=' + 'tran'
+                  + ' --setting=' + 'in'
 
     os.system(the_command + ' --phase=st_te')
 
 # setting: in tran
 # cls: knn, lr, svm
 
-#print('inductive')
-print('transductive')
+print('inductive')
+#print('transductive')
 for num_a in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40, 50]:
     run_exp(shot=1, query=15, num_aug=num_a)
     run_exp(shot=5, query=15, num_aug=num_a)

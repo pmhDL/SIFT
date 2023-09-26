@@ -13,7 +13,7 @@ from utils.misc import euclidean_metric, compactness_loss, tc_proto, np_proto
 def route_plan(Dij):
     K = Dij.shape[0]
     model = lp.LpProblem(name='plan_0_1', sense=lp.LpMinimize)
-    x = [[lp.LpVariable("x{}{}".format(i, j), cat="Binary") for j in range(K)] for i in range(K)]
+    x = [[lp.LpVariable("x_{},{}".format(i, j), cat="Binary") for j in range(K)] for i in range(K)]
     # objective
     objective = 0
     for i in range(K):
@@ -36,19 +36,13 @@ def route_plan(Dij):
     model.solve(lp.apis.PULP_CBC_CMD(msg=False))
 
     W = np.zeros((K, K))
-    i = 0
-    j = 0
     for v in model.variables():
-        W[i, j] = v.varValue
-        j = j + 1
-        if j % K == 0:
-            i = i + 1
-            j = 0
+        idex = [int(s) for s in v.name.split('_')[1].split(',')]
+        W[idex[0], idex[1]] = v.varValue
     return W
 
 
 def updateproto_(Xs, ys, cls_center, way):
-    """assign labels for the clusters based on assignment method"""
     proto = np_proto(Xs, ys, way)
     dist = ((proto[:, np.newaxis, :]-cls_center[np.newaxis, :, :])**2).sum(2)
     W = route_plan(dist)
@@ -60,7 +54,6 @@ def updateproto_(Xs, ys, cls_center, way):
 
 
 class Classifier(nn.Module):
-
     def __init__(self, way, z_dim):
         super().__init__()
         self.z_dim = z_dim
@@ -111,7 +104,7 @@ class FClayer(nn.Module):
 
 class Learner(nn.Module):
 
-    def __init__(self, args, mode='st'):
+    def __init__(self, args, mode=''):
         super().__init__()
         self.args = args
         self.mode = mode
@@ -123,19 +116,24 @@ class Learner(nn.Module):
 
         if mode == 'st':
             self.fc_en = FClayer(z_sem, z_dim)
-            self.activefun1 = nn.ReLU()
-            self.trans = nn.Linear(z_sem, z_sem) # self.trans = FClayer(z_sem, z_sem)
-            self.activefun2 = nn.Sigmoid() # nn.ReLU()
+            self.trans = nn.Linear(z_sem, z_sem)
             self.fc_de = FClayer(z_dim, z_sem)
             self.classifyer = Classifier(self.args.way, z_dim)
         elif mode == 'dc':
             self.classifyer = Classifier(self.args.way, z_dim)
+        elif mode == 'ns':
+            self.contloss = torch.nn.CrossEntropyLoss()
+            self.transNet = nn.Sequential(nn.Linear(z_dim, z_sem), nn.Linear(z_sem, z_dim))
+            # nn.ReLU(),  nn.Softmax()
 
     def forward(self, inp):
         """The function to forward the model."""
         if self.mode == 'st':
-            feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, label_n1, feat_nq = inp
-            return self.st_forward(feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, label_n1, feat_nq)
+            feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, feat_nq = inp
+            return self.st_forward(feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, feat_nq)
+        elif self.mode == 'ns':
+            feat_b, label_b, feat_ns, label_ns, feat_nq = inp
+            return self.ns_forward(feat_b, label_b, feat_ns, label_ns, feat_nq)
         elif self.mode == 'dc':
             feat_s, label_s, feat_q = inp
             return self.dc_forward(feat_s, label_s, feat_q)
@@ -165,7 +163,7 @@ class Learner(nn.Module):
         return logits_q
 
 
-    def st_forward(self, feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, label_n1, feat_nq):
+    def st_forward(self, feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, feat_nq):
         '''
         :param feat_b: base features (way*N, 640), N: the selected samples per class
         :param sem_b: semantic features of base samples (way*N, 300)
@@ -175,9 +173,8 @@ class Learner(nn.Module):
         :param sem_ns: semantic features (way*shot, 300)
         :param label_ns: support labels (way*shot, )
         :param sem_n1: ground truth semantic features of each class
-        :param label_n1: labels of each class (way, )
         :param feat_nq: query features
-        :return: feat_n_1_1 the generated features
+        :return: logits, feat_n_1_1 (the generated features)
         '''
         # transductive
         Xq = feat_nq.cuda().data.cpu().numpy()
@@ -188,7 +185,7 @@ class Learner(nn.Module):
         else:
             p_np = np_proto(Xs, ys, self.args.way)
             km = KMeans(n_clusters=self.args.way, init=p_np, max_iter=1000, random_state=100)
-        #km = KMeans(n_clusters=self.args.way, max_iter=1000, random_state=100)
+
         yq_fit = km.fit(Xq)
         clus_center = yq_fit.cluster_centers_
         proto1 = updateproto_(Xs, ys, clus_center, self.args.way)
@@ -219,7 +216,7 @@ class Learner(nn.Module):
 
             '''-----------losses of encoder---------'''
             # mapping constraint
-            sem_b_1 = self.fc_en(feat_b)   # sem_b_1 = self.activefun2(sem_b_1)
+            sem_b_1 = self.fc_en(feat_b)
             loss1 = loss_fn(sem_b, sem_b_1)
             # reconstruction constraint
             vars = nn.ParameterList()
@@ -230,7 +227,7 @@ class Learner(nn.Module):
 
             '''--------------loss of trans-------------'''
             # mapping constraint
-            sem_n_1 = self.trans(sem_b1)  # sem_n_1=self.activefun(sem_n_1)
+            sem_n_1 = self.trans(sem_b1)
             loss3 = loss_fn(sem_n1, sem_n_1)
 
             '''--------losses of decoder --------'''
@@ -246,7 +243,7 @@ class Learner(nn.Module):
 
             '''------------ compactness -----------'''
             # transform the samples from base classes to novel classes
-            sem_n_1_1 = self.trans(sem_b_1) # sem_n_1_1 = self.activefun2(sem_n_1_1)
+            sem_n_1_1 = self.trans(sem_b_1)
             feat_n_1_1 = self.fc_de(sem_n_1_1)
             loss7 = compactness_loss(feat_n_1_1, label_b, proto, label_ns)
 
@@ -265,41 +262,133 @@ class Learner(nn.Module):
             loss.backward(retain_graph=True)
             optimizer.step()
 
-            '''-------------- augmented novel support ------------'''
-            feat = torch.cat((feat_n_1_1, feat_ns), dim=0)
-            labels = torch.cat((label_b, label_ns), dim=0)
-            feat = F.normalize(feat, dim=1)
+        '''-------------- augmented novel support ------------'''
+        self.fc_en.eval()
+        self.trans.eval()
+        self.fc_de.eval()
+        sem_b_1 = self.fc_en(feat_b)
+        sem_n_1_1 = self.trans(sem_b_1)
+        feat_n_1_1 = self.fc_de(sem_n_1_1)
+        feat = torch.cat((feat_n_1_1, feat_ns), dim=0)
+        labels = torch.cat((label_b, label_ns), dim=0)
+        feat = F.normalize(feat, dim=1)
+        '''----------- train classifier -----------'''
+        if self.args.classifiermethod == 'gradient':
+            logits = self.classifyer(feat)
+            loss = F.cross_entropy(logits, labels)
+            grad = torch.autograd.grad(loss, self.classifyer.parameters())
+            fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, self.classifyer.parameters())))
 
-            '''----------- train classifier -----------'''
-            if self.args.classifiermethod == 'gradient':
-                logits = self.classifyer(feat)
+            for _ in range(1, 100):
+                logits = self.classifyer(feat, fast_weights)
                 loss = F.cross_entropy(logits, labels)
-                grad = torch.autograd.grad(loss, self.classifyer.parameters())
-                fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, self.classifyer.parameters())))
+                grad = torch.autograd.grad(loss, fast_weights)
+                fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, fast_weights)))
+            logits_q = self.classifyer(feat_nq, fast_weights)
 
-                for _ in range(1, 100):
-                    logits = self.classifyer(feat, fast_weights)
-                    loss = F.cross_entropy(logits, labels)
-                    grad = torch.autograd.grad(loss, fast_weights)
-                    fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, fast_weights)))
-                logits_q = self.classifyer(feat_nq, fast_weights)
+        elif self.args.classifiermethod == 'metric': # protoNet
+            protos = tc_proto(feat, labels, self.args.way)
+            logits_q = euclidean_metric(feat_nq, protos)
 
-            elif self.args.classifiermethod == 'metric': # protoNet
-                protos = tc_proto(feat, labels, self.args.way)
-                logits_q = euclidean_metric(feat_nq, protos)
-
-            elif self.args.classifiermethod == 'nonparam': # LR, SVM, KNN
-                X_aug = feat.cuda().data.cpu().numpy()
-                Y_aug = labels.cuda().data.cpu().numpy()
-                data_query1 = feat_nq.cuda().data.cpu().numpy()
-                if self.args.cls == 'lr':
-                    classifier = LogisticRegression(max_iter=1000).fit(X=X_aug, y=Y_aug)
-                elif self.args.cls == 'svm':
-                    classifier = SVC(C=10, gamma='auto', kernel='linear', probability=True).fit(X=X_aug, y=Y_aug)
-                elif self.args.cls == 'knn':
-                    classifier = KNeighborsClassifier(n_neighbors=1).fit(X=X_aug, y=Y_aug)
-                logits_q = classifier.predict(data_query1)
-            else:
-                raise ValueError('Please set the correct method.')
+        elif self.args.classifiermethod == 'nonparam': # LR, SVM, KNN
+            X_aug = feat.cuda().data.cpu().numpy()
+            Y_aug = labels.cuda().data.cpu().numpy()
+            data_query1 = feat_nq.cuda().data.cpu().numpy()
+            if self.args.cls == 'lr':
+                classifier = LogisticRegression(max_iter=1000).fit(X=X_aug, y=Y_aug)
+            elif self.args.cls == 'svm':
+                classifier = SVC(C=10, gamma='auto', kernel='linear', probability=True).fit(X=X_aug, y=Y_aug)
+            elif self.args.cls == 'knn':
+                classifier = KNeighborsClassifier(n_neighbors=1).fit(X=X_aug, y=Y_aug)
+            logits_q = classifier.predict(data_query1)
+        else:
+            raise ValueError('Please set the correct method.')
 
         return logits_q, sem_n_1_1, feat_n_1_1
+
+
+    def ns_forward(self, feat_b, label_b, feat_ns, label_ns, feat_nq):
+        '''
+        :param feat_b: base features (way*N, 640), N: the selected base samples per class
+        :param label_b: base labels (way*N, )
+        :param feat_ns: support features (way*shot, 300)
+        :param label_ns: support labels (way*shot, )
+        :param feat_nq: query features
+        '''
+        # transductive
+        Xq = feat_nq.cuda().data.cpu().numpy()
+        Xs = feat_ns.cuda().data.cpu().numpy()
+        ys = label_ns.cuda().data.cpu().numpy()
+        if self.args.shot == 1:
+            km = KMeans(n_clusters=self.args.way, max_iter=1000, random_state=100)
+        else:
+            p_np = np_proto(Xs, ys, self.args.way)
+            km = KMeans(n_clusters=self.args.way, init=p_np, max_iter=1000, random_state=100)
+        yq_fit = km.fit(Xq)
+        clus_center = yq_fit.cluster_centers_
+        proto1 = updateproto_(Xs, ys, clus_center, self.args.way)
+        proto1 = torch.tensor(proto1).type(feat_ns.type())
+        proto1 = F.normalize(proto1, dim=1)
+
+        # inductive
+        proto2 = tc_proto(feat_ns, label_ns, self.args.way)
+        proto2 = F.normalize(proto2, dim=1)
+
+        if self.args.setting == 'tran':
+            proto = proto1
+        elif self.args.setting == 'in':
+            proto = proto2
+
+        optimizer = torch.optim.Adam([{'params': self.transNet.parameters(), 'lr': self.args.lr}], lr=self.args.lr)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.2)
+
+        for i in range(50):
+            lr_scheduler.step()
+            self.transNet.train()
+            optimizer.zero_grad()
+            n_of_b = self.transNet(feat_b)
+            logit = n_of_b.mm(proto.T)
+            loss_con = self.contloss(logit, label_b)
+            loss_con.backward(retain_graph=True)
+            optimizer.step()
+
+        '''-------------- augmented novel support ------------'''
+        self.transNet.eval()
+        n_of_b = self.transNet(feat_b)
+        feat = torch.cat((n_of_b, feat_ns), dim=0)
+        labels = torch.cat((label_b, label_ns), dim=0)
+        feat = F.normalize(feat, dim=1)
+
+        '''----------- train classifier -----------'''
+        if self.args.classifiermethod == 'gradient':
+            logits = self.classifyer(feat)
+            loss = F.cross_entropy(logits, labels)
+            grad = torch.autograd.grad(loss, self.classifyer.parameters())
+            fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, self.classifyer.parameters())))
+
+            for _ in range(1, 100):
+                logits = self.classifyer(feat, fast_weights)
+                loss = F.cross_entropy(logits, labels)
+                grad = torch.autograd.grad(loss, fast_weights)
+                fast_weights = list(map(lambda p: p[1] - self.args.gradlr * p[0], zip(grad, fast_weights)))
+            logits_q = self.classifyer(feat_nq, fast_weights)
+
+        elif self.args.classifiermethod == 'metric': # protoNet
+            protos = tc_proto(feat, labels, self.args.way)
+            logits_q = euclidean_metric(feat_nq, protos)
+
+        elif self.args.classifiermethod == 'nonparam': # LR, SVM, KNN
+            X_aug = feat.cuda().data.cpu().numpy()
+            Y_aug = labels.cuda().data.cpu().numpy()
+            data_query1 = feat_nq.cuda().data.cpu().numpy()
+            if self.args.cls == 'lr':
+                classifier = LogisticRegression(max_iter=1000).fit(X=X_aug, y=Y_aug)
+            elif self.args.cls == 'svm':
+                classifier = SVC(C=10, gamma='auto', kernel='linear', probability=True).fit(X=X_aug, y=Y_aug)
+            elif self.args.cls == 'knn':
+                classifier = KNeighborsClassifier(n_neighbors=1).fit(X=X_aug, y=Y_aug)
+            logits_q = classifier.predict(data_query1)
+        else:
+            raise ValueError('Please set the correct method.')
+
+        return logits_q

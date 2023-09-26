@@ -14,7 +14,7 @@ def run_exp(shot=1, query=15, num_aug=100):
                   + ' --way=' + str(way) \
                   + ' --model_type=' + modelname \
                   + ' --dataset=' + dataname \
-                  + ' --dataset_dir=' + './data/'+dataname+'/'+modelname \
+                  + ' --dataset_dir=' + '/data/'+dataname+'/'+modelname \
                   + ' --gpu=' + str(gpu) \
                   + ' --gradlr=' + str(0.1) \
                   + ' --num_aug=' + str(num_aug) \

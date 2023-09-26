@@ -7,9 +7,25 @@ from dataloader.samplers import CategoriesSampler
 from models.SIFT import Learner
 from utils.misc import Averager, Timer, count_acc, compute_confidence_interval
 from dataloader.dataset_loader import DatasetLoader as Dataset
+import time
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
+
+
+def euclidean_metric(query, proto):
+    '''
+    :param a: query
+    :param b: proto
+    :return: (num_sample, way)
+    '''
+    n = query.shape[0]  # num_samples
+    m = proto.shape[0]  # way
+    query = query.unsqueeze(1).expand(n, m, -1)
+    proto = proto.unsqueeze(0).expand(n, m, -1)
+    logits = -((query - proto) ** 2).sum(dim=2)
+    return logits
+
 
 def base_statistics(feat, label):
     ''''Base class statistics'''
@@ -48,14 +64,15 @@ class DC(object):
     def eval(self):
         # Load test set
         test_set = Dataset('test', self.args)
-        sampler = CategoriesSampler(test_set.label, 600, self.args.way, self.args.shot + self.args.val_query)
+        tasknum = 600
+        sampler = CategoriesSampler(test_set.label, tasknum, self.args.way, self.args.shot + self.args.val_query)
         loader = DataLoader(test_set, batch_sampler=sampler, num_workers=8, pin_memory=True)
         # Set test accuracy recorder
-        test_acc_record = np.zeros((600,))
+        test_acc_record = np.zeros((tasknum,))
         # Set accuracy averager
         ave_acc = Averager()
-
-        '''--------------------- Generate labels ----------------------'''
+        ave_acc0 = Averager()
+        '''------------------ Generate labels --------------------'''
         # Generate labels
         label = torch.arange(self.args.way).repeat(self.args.val_query)
         if torch.cuda.is_available():
@@ -68,7 +85,7 @@ class DC(object):
         else:
             label_shot = label_shot.type(torch.LongTensor)
 
-        '''------------------------ process data -----------------------'''
+        '''--------------------- process data --------------------'''
         path = self.args.dataset_dir
         traindata = np.load(path+'/feat-train.npz')
         featbase, labelbase = traindata['features'], traindata['targets']
@@ -77,6 +94,7 @@ class DC(object):
         label_base = labelbase
 
         timer = Timer()
+        start_time = time.time()
         for i, batch in enumerate(loader, 1):
             label1 = label
             label1 = label1.cuda().data.cpu().numpy()
@@ -90,8 +108,14 @@ class DC(object):
             data_query = F.normalize(data_query, dim=1)
             data_query1 = data_query
             data_query1 = data_query1.cuda().data.cpu().numpy()
+            # -------------------------------------------------
+            feat_proto = torch.zeros(self.args.way, data_shot.size(1)).type(data_shot.type())
+            for lb in torch.unique(label_shot):
+                ds = torch.where(label_shot == lb)[0]
+                feat_proto[lb] = torch.mean(data_shot[ds], dim=0)
+            logit0 = euclidean_metric(data_query, feat_proto)
 
-            '''---------------------- generate data -----------------------'''
+            '''-------------------- generate data -------------------'''
             support_data = data_shot.cuda().data.cpu().numpy()
             support_label = label_shot.cuda().data.cpu().numpy()
             base_means, base_cov = base_statistics(feat_base, label_base)
@@ -113,7 +137,7 @@ class DC(object):
             X_aug = np.concatenate([support_data, sampled_data])
             Y_aug = np.concatenate([support_label, sampled_label])
 
-            '''----------------- train classifier -------------------'''
+            '''------------------ train classifier -------------------'''
             if self.args.classifiermethod == 'nonparam':
                 if self.args.cls == 'lr':
                     classifier = LogisticRegression(max_iter=1000).fit(X=X_aug, y=Y_aug)
@@ -132,12 +156,15 @@ class DC(object):
                     Y_aug1 = torch.tensor(Y_aug).type(torch.LongTensor)
                 logit_q = self.model((X_aug1, Y_aug1, data_query))
                 acc = count_acc(logit_q, label)
-
+            acc0 = count_acc(logit0, label)
             ave_acc.add(acc)
+            ave_acc0.add(acc0)
             test_acc_record[i - 1] = acc
             if i % 100 == 0:
-                print('batch {}: {:.2f}({:.2f})'.format(i, ave_acc.item() * 100, acc * 100))
-
+                print('batch {}: {:.2f} {:.2f} '.format(i, ave_acc0.item() * 100, ave_acc.item() * 100))
+        end_time = time.time()
+        time_mean = (end_time - start_time) / tasknum
         m, pm = compute_confidence_interval(test_acc_record)
         print('Test Acc {:.4f} + {:.4f}'.format(m, pm))
+        print('per task runing time: ', time_mean)
         print('Running Time: {} '.format(timer.measure()))

@@ -1,4 +1,4 @@
-""" Additional utility functions """
+""" Additional utility functions. """
 import matplotlib
 matplotlib.use('pdf')
 import os
@@ -88,6 +88,16 @@ def get_cos_similar_matrix(v1, v2):
     res = num / denom
     res[np.isneginf(res)] = 0
     return 0.5 + 0.5 * res
+
+def get_cos_similar_matrix_loop(v1, v2):
+    simmat = np.zeros((v1.shape[0], v2.shape[0]))
+    for k in range(v1.shape[0]):
+        for i in range(v2.shape[0]):
+            num = np.dot(v1[k], v2[i])
+            denom = np.linalg.norm(v1[k]) * np.linalg.norm(v2[i])
+            res = num / denom
+            simmat[k, i] = res
+    return 0.5 + 0.5 * simmat
 
 
 def np_proto(feat, label, way):

@@ -1,4 +1,4 @@
-""" SIFT method """
+""" Our SIFT method """
 import numpy as np
 import random
 import torch
@@ -6,8 +6,54 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from dataloader.samplers import CategoriesSampler
 from models.SIFT import Learner
-from utils.misc import Averager, Timer, count_acc, compute_confidence_interval, get_cos_similar_matrix
+from utils.misc import Averager, Timer, count_acc, compute_confidence_interval, get_cos_similar_matrix, get_cos_similar_matrix_loop
 from dataloader.dataset_loader import DatasetLoader as Dataset
+import pulp as lp
+import time
+
+def euclidean_metric(query, proto):
+    '''
+    :param a: query
+    :param b: proto
+    :return: (num_sample, way)
+    '''
+    n = query.shape[0]  # num_samples
+    m = proto.shape[0]  # way
+    query = query.unsqueeze(1).expand(n, m, -1)
+    proto = proto.unsqueeze(0).expand(n, m, -1)
+    logits = -((query - proto) ** 2).sum(dim=2)
+    return logits 
+
+
+def route_plan_J(Dij):
+    NN, BB = Dij.shape
+    model = lp.LpProblem(name='plan_0_1', sense=lp.LpMaximize)
+    x = [[lp.LpVariable("x_{},{}".format(i, j), cat="Binary") for j in range(BB)] for i in range(NN)]
+    # objective
+    objective = 0
+    for i in range(NN):
+        for j in range(BB):
+            objective = objective + Dij[i, j] * x[i][j]
+    model += objective
+    # constraints
+    for i in range(NN):
+        in_degree = 0
+        for j in range(BB):
+            in_degree = in_degree + x[i][j]
+        model += in_degree == 1
+    for j in range(BB):
+        out_degree = 0
+        for i in range(NN):
+            out_degree = out_degree + x[i][j]
+        model += out_degree <= 1
+    model.solve(lp.apis.PULP_CBC_CMD(msg=False))
+
+    W = np.zeros((NN, BB))
+    for v in model.variables():
+        idex = [int(s) for s in v.name.split('_')[1].split(',')]
+        W[idex[0], idex[1]] = v.varValue
+    return W
+
 
 class ST(object):
     def __init__(self, args):
@@ -39,22 +85,23 @@ class ST(object):
             feat_b.append(feat_base[idd])
             label_b.extend([c]*num)
             abs_lb.extend([labell]*num)
-            c = c+1
+            c = c + 1
         feat_b = np.concatenate(feat_b, axis=0)
         label_b = np.array(label_b)
         abs_lb = np.array(abs_lb)
         return feat_b, label_b, abs_lb
 
     def eval(self):
-        """The function for the meta-eval phase."""
         # Load test set
+        tasknum = 600
         test_set = Dataset('test', self.args)
-        sampler = CategoriesSampler(test_set.label, 600, self.args.way, self.args.shot + self.args.val_query)
+        sampler = CategoriesSampler(test_set.label, tasknum, self.args.way, self.args.shot + self.args.val_query)
         loader = DataLoader(test_set, batch_sampler=sampler, num_workers=8, pin_memory=True)
         # Set test accuracy recorder
-        test_acc_record = np.zeros((600,))
+        test_acc_record = np.zeros((tasknum,))
         # Set accuracy averager
         ave_acc = Averager()
+        ave_acc0 = Averager()
 
         '''--------------- Generate labels --------------'''
         # Generate labels
@@ -73,18 +120,14 @@ class ST(object):
         path = self.args.dataset_dir
         traindata = np.load(path+'/feat-train.npz')
         featbase, labelbase = traindata['features'], traindata['targets']
-        train_class = len(np.unique(labelbase))
         trainemb = np.load(path + '/few-shot-wordemb-train.npz')['features']
-
         emb_novel = np.load(path + '/few-shot-wordemb-test.npz')['features']
         feat_base = featbase
         label_base = labelbase
         emb_base = trainemb
-
-        sim_n_b = get_cos_similar_matrix(emb_novel, emb_base)
-        maxv, maxid = sim_n_b.max(1), sim_n_b.argmax(1)
-
+        '''-------------------------------------------------'''
         timer = Timer()
+        start_time = time.time()
         for i, batch in enumerate(loader, 1):
             label1 = label
             label1 = label1.cuda().data.cpu().numpy()
@@ -96,12 +139,24 @@ class ST(object):
             data_shot, data_query = data[:k], data[k:]
             data_shot = F.normalize(data_shot, dim=1)
             data_query = F.normalize(data_query, dim=1)
+            
+            # # ----------------------------------------------------
+            feat_proto = torch.zeros(self.args.way, data_shot.size(1)).type(data_shot.type())
+            for lb in torch.unique(label_shot):
+                ds = torch.where(label_shot == lb)[0]
+                feat_proto[lb] = torch.mean(data_shot[ds], dim=0)
+            logit0 = euclidean_metric(data_query, feat_proto)
+
+            # ---------------compute similarity and select base classes-----------------
+            label_abs_n = label_abs.cuda().data.cpu().numpy()
+            emb_novel_base = get_cos_similar_matrix_loop(emb_novel[label_abs_n[:self.args.way]], emb_base)
+            # emb_novel_base = get_cos_similar_matrix(emb_novel[label_abs_n[:self.args.way]], emb_base)
+            maxid = np.where(route_plan_J(emb_novel_base) == 1)[1]
 
             '''----------------- generate samples ------------------'''
             lb_abs = label_abs[: self.args.way]
-            # the corresponding base classes
             lb_abs = lb_abs.cuda().data.cpu().numpy()
-            base_lb_abs = maxid[lb_abs]
+            base_lb_abs = maxid
 
             support = data_shot.view(self.args.shot, self.args.way, -1).transpose(1, 0)
             proto = torch.mean(support, dim=1)
@@ -115,7 +170,6 @@ class ST(object):
             sem_ns = emb_novel[label_abs[:k]]
             label_ns = label_shot
             sem_n1 = emb_novel[lb_abs]
-            label_n1 = label_shot[:self.args.way]
             feat_nq = data_query
 
             if torch.cuda.is_available():
@@ -134,17 +188,23 @@ class ST(object):
                 sem_n1 = torch.tensor(sem_n1).type(torch.FloatTensor)
 
             logit_q, emb_n_trans_from_base, feat_n_trans_from_base \
-                = self.model((feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, label_n1, feat_nq))
+                = self.model((feat_b, sem_b, sem_b1, label_b, feat_ns, sem_ns, label_ns, sem_n1, feat_nq))
+
+            acc0 = count_acc(logit0, label)
 
             if self.args.classifiermethod == 'nonparam':
                 acc = np.mean(logit_q == label1)
             else:
                 acc = count_acc(logit_q, label)
+
             ave_acc.add(acc)
+            ave_acc0.add(acc0)
             test_acc_record[i - 1] = acc
             if i % 100 == 0:
-                print('batch {}: {:.2f}({:.2f})'.format(i, ave_acc.item() * 100, acc * 100))
-
+                print('batch {}: {:.2f} {:.2f} '.format(i, ave_acc0.item() * 100, ave_acc.item() * 100))
+        end_time = time.time()
+        time_mean = (end_time - start_time) / tasknum
         m, pm = compute_confidence_interval(test_acc_record)
         print('Test Acc {:.4f} + {:.4f}'.format(m, pm))
+        print('per task runing time: ', time_mean)
         print('Running Time: {} '.format(timer.measure()))

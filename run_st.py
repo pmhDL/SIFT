@@ -1,4 +1,4 @@
-""" Our SIFT """
+""" run SIFT """
 import os
 
 def run_exp(shot=1, query=15, num_aug=100):

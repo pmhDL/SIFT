@@ -26,7 +26,7 @@ The dataset can be downloaded from the following links:
 ## Pre-trained Backbones
 The pre-trained backbones can be downloaded from the following links:
 * [WRN-28-10](https://drive.google.com/drive/folders/1KfPzwMvVzybvp13IQW5ipHvSxBncTA-C)   
-* [ResNet12](https://drive.google.com/file/d/1Prn7_41NVrZbnePAlSiKjD21Jlz0LKJM/view)
+* [ResNet12](https://drive.google.com/drive/folders/1unnbnYgjXtwP4lFtcLrCAcZ_H1uQESLf)
 
 ## Evaluate SIFT method
 To evaluate SIFT, run:

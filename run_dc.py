@@ -1,4 +1,4 @@
-""" run distribution calibration method """
+""" run Distribution Calibration (DC) """
 import os
 
 def run_exp(shot=1, query=15, num_aug=1):
